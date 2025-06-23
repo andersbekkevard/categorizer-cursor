@@ -138,4 +138,20 @@ def fetch_company_by_name(company_name):
         return None
 
     # Use intelligent selection to pick the best match
-    return select_best_company_match(companies, company_name)
+    selected_company = select_best_company_match(companies, company_name)
+
+    # Return both the selected company and search metadata
+    if selected_company:
+        search_metadata = {
+            "total_matches": len(companies),
+            "companies_with_naringskoder": len(
+                [c for c in companies if has_naringskoder(c)]
+            ),
+            "exact_name_match": any(
+                c.get("navn", "").lower() == company_name.lower() for c in companies
+            ),
+            "selected_company_has_naringskoder": has_naringskoder(selected_company),
+        }
+        return selected_company, search_metadata
+
+    return None

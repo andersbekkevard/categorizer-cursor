@@ -9,7 +9,8 @@ USAGE:
 
 INPUT:
     Place your CSV file in the 'input/' directory.
-    CSV must contain columns: company_name, revenue (or similar variants)
+    CSV must have at least 2 columns: first column is company name, second is revenue
+    Additional columns are ignored. Handles quoted values with commas properly.
 
 OUTPUT:
     Results will be saved in the 'output/' directory.
@@ -34,7 +35,8 @@ def display_welcome():
     print("=" * 55)
     print()
     print("📁 INPUT:  Place your CSV file in the 'input/' directory")
-    print("   Required columns: company_name, revenue")
+    print("   Required: At least 2 columns (company name, revenue)")
+    print("   Additional columns are ignored")
     print()
     print("📁 OUTPUT: Results will be saved in the 'output/' directory")
     print("   Output format: company_name, company_category, revenue")
@@ -65,14 +67,15 @@ def select_input_file(csv_files):
     if len(csv_files) == 0:
         print("❌ No CSV files found in 'input/' directory!")
         print()
-        print("📋 Please add your CSV file to the 'input/' directory with columns:")
-        print("   - company_name (or 'company name', 'name', 'company')")
-        print("   - revenue (or 'revenues', 'turnover', 'sales')")
+        print("📋 Please add your CSV file to the 'input/' directory with:")
+        print("   - First column: company name")
+        print("   - Second column: revenue")
+        print("   - Additional columns are ignored")
         print()
         print("💡 Example CSV format:")
-        print(f"   company_name{CSV_DELIMITER}revenue")
-        print(f"   Equinor ASA{CSV_DELIMITER}500000000")
-        print(f"   DNB Bank{CSV_DELIMITER}250000000")
+        print(f"   company{CSV_DELIMITER}revenue{CSV_DELIMITER}other")
+        print(f"   Equinor ASA{CSV_DELIMITER}500000000{CSV_DELIMITER}extra")
+        print(f'   DNB Bank{CSV_DELIMITER}"250,000,000"{CSV_DELIMITER}ignored')
         return None
 
     if len(csv_files) == 1:
@@ -117,7 +120,15 @@ def get_processing_options():
     )
     include_metadata = response in ["y", "yes"]
 
-    return {"include_metadata": include_metadata}
+    # Excel compatibility option
+    response = (
+        input("   Optimize for Excel compatibility (UTF-8 with BOM)? (Y/n): ")
+        .lower()
+        .strip()
+    )
+    excel_compatible = response not in ["n", "no"]  # Default to yes
+
+    return {"include_metadata": include_metadata, "excel_compatible": excel_compatible}
 
 
 def ensure_directories():
@@ -136,14 +147,16 @@ def ensure_directories():
                 placeholder.write_text(
                     f"""Place your CSV files here for processing.
 
-Required columns:
-- company_name (or 'company name', 'name', 'company')
-- revenue (or 'revenues', 'turnover', 'sales')
+Required format:
+- First column: company name
+- Second column: revenue  
+- Additional columns are ignored
+- Handles quoted values with commas (e.g., "123,456,789")
 
 Example:
-company_name{CSV_DELIMITER}revenue
-Equinor ASA{CSV_DELIMITER}500000000
-DNB Bank{CSV_DELIMITER}250000000
+company{CSV_DELIMITER}revenue{CSV_DELIMITER}other
+Equinor ASA{CSV_DELIMITER}500000000{CSV_DELIMITER}extra
+DNB Bank{CSV_DELIMITER}"250,000,000"{CSV_DELIMITER}ignored
 """
                 )
 
@@ -171,7 +184,9 @@ def main():
 
         # Process the file
         summary = process_csv_file(
-            str(selected_file), include_metadata=options["include_metadata"]
+            str(selected_file),
+            include_metadata=options["include_metadata"],
+            excel_compatible=options["excel_compatible"],
         )
 
         if summary:
@@ -184,7 +199,8 @@ def main():
     except Exception as e:
         print(f"\n❌ Error: {e}")
         print("\n💡 Tips:")
-        print("   - Ensure your CSV has the required columns")
+        print("   - Ensure your CSV has at least 2 columns")
+        print("   - First column should be company name")
         print("   - Check that company names are not empty")
         print("   - Verify file encoding is UTF-8")
         return 1

@@ -11,6 +11,22 @@ BASE_URL = "https://data.brreg.no/enhetsregisteret/api/enheter"
 # CSV Configuration
 CSV_DELIMITER = ","  # Change to ";" for semicolon-separated files
 
+# Category ID mapping (1-9)
+CATEGORY_IDS = {
+    "Fashion & Personal Accessories": 1,
+    "Beauty, Health & Well-Being": 2,
+    "Consumer Tech & Appliances": 3,
+    "Food, Grocery & Pet": 4,
+    "Home & Living": 5,
+    "Toys, Games & Leisure Goods": 6,
+    "Industrial & Manufacturing Supplies": 7,
+    "Energy, Utilities & Recycling": 8,
+    "Services, Trade & Institutions": 9,
+    # Special categories
+    "Uncategorized": 0,
+    "Not Found": 0,
+}
+
 # Product category mapping based on grouping.md categories and næringskoder ranges
 PRODUCT_CATEGORIES = {
     "Fashion & Personal Accessories": {

@@ -1,0 +1,5 @@
+﻿company_name,company_category,category_id,revenue,subsegment,confidence,selected_company,org_number,categorized_by_naringskode,num_naringskoder,exact_code_match,keyword_match,confidence_score,primary_naringskode,matching_keywords,method
+Elkjøp/Elgiganten,"Services, Trade & Institutions",9,"123,123,123",Business Services,High,ELGIGANTEN AS,998209315,1,1,0,1,0.232,68.209,eiendom,naringskode
+Equinor,Industrial & Manufacturing Supplies,7,"123,123,123",Chemical Products,High,EQUINOR ASA,923609016,1,3,0,1,0.232,19.200,produksjon,naringskode
+BYPOST AS,"Services, Trade & Institutions",9,"123,123,123",Business Services,High,BYPOST AS,989383167,1,1,0,1,0.283,53.200,tjeneste,naringskode
+Aker Solutions,Industrial & Manufacturing Supplies,7,"123,123,123",Chemical Products,High,AKER SOLUTIONS AS,929877950,1,3,0,1,0.232,28.130,produksjon,naringskode

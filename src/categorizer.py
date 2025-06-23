@@ -5,9 +5,75 @@ This module contains the core business logic for categorizing Norwegian companie
 based on their næringskoder (industry codes) and keywords from company data.
 """
 
-from .config import PRODUCT_CATEGORIES
+from .config import PRODUCT_CATEGORIES, CATEGORY_IDS
 from .utils import extract_naringskoder, format_naringskoder
 from .company_matcher import fetch_company_by_name
+
+
+def calculate_confidence_score(
+    base_score,
+    categorized_by_naringskode,
+    total_matches,
+    exact_name_match,
+    company_name,
+    selected_company_name,
+):
+    """
+    Calculate confidence score based on user requirements:
+    - High when categorized by næringskode
+    - Decreasing function if there are many companies with the same name
+    - 1.0 if: only one company found + perfect name match + categorized by næringskode
+    - Minimum thresholds for næringskode categorization:
+      * >0.8 if <30 matches and categorized by næringskode
+      * >0.5 if categorized by næringskode (regardless of matches)
+    """
+
+    # Perfect conditions: single match, exact name, categorized by næringskode
+    if (
+        total_matches == 1
+        and exact_name_match
+        and categorized_by_naringskode
+        and company_name.lower() == selected_company_name.lower()
+    ):
+        return 1.0
+
+    # Start with base score
+    confidence = base_score
+
+    # Apply penalty for multiple matches (but less harsh for næringskode categorization)
+    if total_matches > 1:
+        if categorized_by_naringskode:
+            # Gentler penalty for næringskode categorization
+            # Use square root instead of logarithm for less harsh penalty
+            import math
+
+            match_penalty = 1 / (1 + math.sqrt(total_matches - 1) * 0.1)
+            confidence *= match_penalty
+        else:
+            # Original harsh penalty for non-næringskode categorization
+            import math
+
+            match_penalty = 1 / (1 + math.log(total_matches))
+            confidence *= match_penalty
+
+    # Bonus for exact name match
+    if exact_name_match:
+        confidence *= 1.1  # 10% bonus
+
+    # Penalty for name mismatch between search and selected company
+    if company_name.lower() != selected_company_name.lower():
+        confidence *= 0.9  # 10% penalty
+
+    # Apply minimum thresholds for næringskode categorization
+    if categorized_by_naringskode:
+        if total_matches < 30:
+            # Ensure >0.8 for companies with <30 matches
+            confidence = max(confidence, 0.81)
+        # Always ensure >0.5 regardless of matches (this covers >=30 matches case)
+        confidence = max(confidence, 0.51)
+
+    # Ensure we don't exceed 1.0 (except for the perfect case handled above)
+    return min(confidence, 0.99)
 
 
 def categorize_by_naringskode(naringskoder):
@@ -152,12 +218,13 @@ def categorize_company(company_name):
     print(f"Processing: {company_name}")
 
     # Fetch company data with intelligent selection
-    company_data = fetch_company_by_name(company_name)
+    result = fetch_company_by_name(company_name)
 
-    if not company_data:
+    if not result:
         return {
             "company_name": company_name,
             "category": "Not Found",
+            "category_id": CATEGORY_IDS.get("Not Found", 0),
             "subsegment": "",
             "method": "api_error",
             "code": "",
@@ -177,6 +244,8 @@ def categorize_company(company_name):
             "matching_keywords": "",
         }
 
+    # Unpack the result
+    company_data, search_metadata = result
     selected_company_name = company_data.get("navn", "Unknown")
     org_number = company_data.get("organisasjonsnummer", "")
 
@@ -203,21 +272,31 @@ def categorize_company(company_name):
 
             # Set granular flags
             categorized_by_naringskode = 1
-            confidence_score = 0.9
             primary_naringskode = (
                 code.split(" ")[0] if code else ""
             )  # Extract just the code part
 
-            # Check if it was exact code match or keyword match within næringskode
+            # NEW CONFIDENCE SCORE LOGIC
+            # Start with base confidence for næringskode categorization
             if "(keyword:" in code:
                 keyword_match = 1
-                confidence_score = 0.75  # Slightly lower for keyword within næringskode
+                base_confidence = 0.85  # Lower for keyword match within næringskode
                 matching_keywords = (
                     code.split("keyword: ")[1].rstrip(")") if "keyword:" in code else ""
                 )
             else:
                 exact_code_match = 1
-                confidence_score = 0.95  # Highest confidence for exact code match
+                base_confidence = 0.95  # Higher for exact code match
+
+            # Calculate confidence based on search results
+            confidence_score = calculate_confidence_score(
+                base_score=base_confidence,
+                categorized_by_naringskode=True,
+                total_matches=search_metadata["total_matches"],
+                exact_name_match=search_metadata["exact_name_match"],
+                company_name=company_name,
+                selected_company_name=selected_company_name,
+            )
         else:
             # Fallback to keyword matching
             keyword_result = categorize_by_keywords(company_data)
@@ -227,9 +306,19 @@ def categorize_company(company_name):
 
             # Set granular flags for keyword fallback
             keyword_match = 1 if code != "no_match" else 0
-            confidence_score = 0.6 if code != "no_match" else 0.2
+            base_confidence = 0.4 if code != "no_match" else 0.1
             if "Keywords:" in description:
                 matching_keywords = description.replace("Keywords: ", "")
+
+            # Calculate confidence for keyword-based categorization
+            confidence_score = calculate_confidence_score(
+                base_score=base_confidence,
+                categorized_by_naringskode=False,
+                total_matches=search_metadata["total_matches"],
+                exact_name_match=search_metadata["exact_name_match"],
+                company_name=company_name,
+                selected_company_name=selected_company_name,
+            )
     else:
         # No næringskoder available, use keyword matching
         keyword_result = categorize_by_keywords(company_data)
@@ -239,14 +328,19 @@ def categorize_company(company_name):
 
         # Set granular flags for pure keyword matching
         keyword_match = 1 if code != "no_match" else 0
-        confidence_score = 0.5 if code != "no_match" else 0.1
+        base_confidence = 0.3 if code != "no_match" else 0.05
         if "Keywords:" in description:
             matching_keywords = description.replace("Keywords: ", "")
 
-    # Additional confidence adjustments based on company selection quality
-    # (if different company was selected, reduce confidence slightly)
-    if selected_company_name.lower() != company_name.lower():
-        confidence_score *= 0.9  # Reduce by 10% for company name mismatch
+        # Calculate confidence for keyword-only categorization
+        confidence_score = calculate_confidence_score(
+            base_score=base_confidence,
+            categorized_by_naringskode=False,
+            total_matches=search_metadata["total_matches"],
+            exact_name_match=search_metadata["exact_name_match"],
+            company_name=company_name,
+            selected_company_name=selected_company_name,
+        )
 
     # Get subsegment suggestion
     subsegment = get_subsegment_suggestion(category, company_data)
@@ -254,6 +348,7 @@ def categorize_company(company_name):
     return {
         "company_name": company_name,
         "category": category,
+        "category_id": CATEGORY_IDS.get(category, 0),
         "subsegment": subsegment,
         "method": method,
         "code": code,
@@ -272,4 +367,7 @@ def categorize_company(company_name):
         "confidence_score": round(confidence_score, 3),
         "primary_naringskode": primary_naringskode,
         "matching_keywords": matching_keywords,
+        # Additional metadata
+        "total_matches": search_metadata["total_matches"],
+        "exact_name_match": int(search_metadata["exact_name_match"]),
     }

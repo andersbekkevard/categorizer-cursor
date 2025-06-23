@@ -26,7 +26,7 @@ def read_input_csv(file_path):
 
     Raises:
         FileNotFoundError: If input file doesn't exist
-        ValueError: If required columns are missing
+        ValueError: If file has insufficient columns
     """
     if not os.path.exists(file_path):
         raise FileNotFoundError(f"Input file not found: {file_path}")
@@ -35,50 +35,58 @@ def read_input_csv(file_path):
 
     with open(file_path, "r", encoding="utf-8") as csvfile:
         # Use configured delimiter (can be changed in config.py)
-        reader = csv.DictReader(csvfile, delimiter=CSV_DELIMITER)
+        reader = csv.reader(csvfile, delimiter=CSV_DELIMITER)
 
-        # Check if fieldnames exist
-        if not reader.fieldnames:
-            raise ValueError("CSV file appears to be empty or has no headers")
+        # Read first row to check if we have headers and determine column count
+        try:
+            first_row = next(reader)
+        except StopIteration:
+            raise ValueError("CSV file appears to be empty")
 
-        # Check for required columns (case-insensitive)
-        headers = [h.lower().strip() for h in reader.fieldnames]
-
-        company_col = None
-        revenue_col = None
-
-        # Find company name column
-        for col in reader.fieldnames:
-            col_lower = col.lower().strip()
-            if col_lower in ["company_name", "company name", "name", "company"]:
-                company_col = col
-                break
-
-        # Find revenue column
-        for col in reader.fieldnames:
-            col_lower = col.lower().strip()
-            if col_lower in ["revenue", "revenues", "turnover", "sales"]:
-                revenue_col = col
-                break
-
-        if not company_col:
+        # Check if we have at least 2 columns
+        if len(first_row) < 2:
             raise ValueError(
-                "Could not find company name column. Expected: 'company_name', 'company name', 'name', or 'company'"
+                "CSV file must have at least 2 columns (company name and revenue)"
             )
 
-        if not revenue_col:
-            raise ValueError(
-                "Could not find revenue column. Expected: 'revenue', 'revenues', 'turnover', or 'sales'"
-            )
+        # Determine if first row is headers (contains non-numeric data in revenue column)
+        has_headers = True
+        try:
+            # Try to parse the second column as a number (remove commas first)
+            revenue_value = first_row[1].replace(",", "").replace('"', "").strip()
+            if (
+                revenue_value
+                and revenue_value.replace(".", "").replace("-", "").isdigit()
+            ):
+                has_headers = False
+        except (IndexError, AttributeError):
+            pass
 
-        print(f"✓ Found company column: '{company_col}'")
-        print(f"✓ Found revenue column: '{revenue_col}'")
+        print(f"✓ Detected {'headers' if has_headers else 'no headers'}")
+        print(f"✓ Using column 1 as company name, column 2 as revenue")
+        print(
+            f"✓ Ignoring {len(first_row) - 2} additional columns"
+            if len(first_row) > 2
+            else "✓ Processing 2 columns"
+        )
 
-        for row_num, row in enumerate(
-            reader, start=2
-        ):  # Start at 2 since row 1 is headers
-            company_name = row[company_col].strip()
-            revenue = row[revenue_col].strip()
+        # If first row is not headers, process it as data
+        if not has_headers:
+            company_name = first_row[0].strip()
+            revenue = first_row[1].strip()
+
+            if company_name:  # Only add if company name is not empty
+                companies.append({"company_name": company_name, "revenue": revenue})
+
+        # Process remaining rows
+        for row_num, row in enumerate(reader, start=2 if has_headers else 3):
+            # Skip rows with insufficient columns
+            if len(row) < 2:
+                print(f"⚠️  Warning: Row {row_num} has insufficient columns, skipping")
+                continue
+
+            company_name = row[0].strip()
+            revenue = row[1].strip()
 
             if not company_name:
                 print(f"⚠️  Warning: Empty company name in row {row_num}, skipping")
@@ -115,6 +123,7 @@ def process_companies(companies, progress_callback=None):
         result = {
             "company_name": company["company_name"],
             "company_category": categorization_result["category"],
+            "category_id": categorization_result.get("category_id", 0),
             "revenue": company["revenue"],
             # Core metadata
             "subsegment": categorization_result.get("subsegment", ""),
@@ -155,7 +164,9 @@ def process_companies(companies, progress_callback=None):
     return results
 
 
-def write_output_csv(results, output_path, include_metadata=False):
+def write_output_csv(
+    results, output_path, include_metadata=False, excel_compatible=True
+):
     """
     Write results to CSV file
 
@@ -163,6 +174,7 @@ def write_output_csv(results, output_path, include_metadata=False):
         results (list): List of result dictionaries
         output_path (str): Path for output CSV file
         include_metadata (bool): Whether to include additional metadata columns
+        excel_compatible (bool): Whether to optimize for Excel compatibility (adds BOM)
     """
     # Ensure output directory exists
     os.makedirs(os.path.dirname(output_path), exist_ok=True)
@@ -171,6 +183,7 @@ def write_output_csv(results, output_path, include_metadata=False):
         fieldnames = [
             "company_name",
             "company_category",
+            "category_id",
             "revenue",
             "subsegment",
             "confidence",
@@ -190,13 +203,17 @@ def write_output_csv(results, output_path, include_metadata=False):
         fieldnames = [
             "company_name",
             "company_category",
+            "category_id",
             "revenue",
             # Always include the key granular flags even in basic mode
             "categorized_by_naringskode",
             "confidence_score",
         ]
 
-    with open(output_path, "w", newline="", encoding="utf-8") as csvfile:
+    # Choose encoding based on Excel compatibility preference
+    encoding = "utf-8-sig" if excel_compatible else "utf-8"
+
+    with open(output_path, "w", newline="", encoding=encoding) as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=fieldnames, delimiter=CSV_DELIMITER)
         writer.writeheader()
 
@@ -207,6 +224,10 @@ def write_output_csv(results, output_path, include_metadata=False):
 
     print(f"\n✅ Results saved to: {output_path}")
     print(f"   📊 Processed {len(results)} companies")
+    if excel_compatible:
+        print("   📋 Excel-compatible format (UTF-8 with BOM)")
+    else:
+        print("   🔤 Standard UTF-8 format")
 
 
 def generate_summary_report(results):
@@ -321,7 +342,9 @@ def generate_summary_report(results):
     }
 
 
-def process_csv_file(input_path, output_path=None, include_metadata=False):
+def process_csv_file(
+    input_path, output_path=None, include_metadata=False, excel_compatible=True
+):
     """
     Main function to process a CSV file from input to output
 
@@ -329,6 +352,7 @@ def process_csv_file(input_path, output_path=None, include_metadata=False):
         input_path (str): Path to input CSV file
         output_path (str): Path for output CSV file (auto-generated if None)
         include_metadata (bool): Whether to include additional metadata columns
+        excel_compatible (bool): Whether to optimize for Excel compatibility (adds BOM)
 
     Returns:
         dict: Summary statistics
@@ -351,7 +375,7 @@ def process_csv_file(input_path, output_path=None, include_metadata=False):
         results = process_companies(companies)
 
         # Write output CSV
-        write_output_csv(results, output_path, include_metadata)
+        write_output_csv(results, output_path, include_metadata, excel_compatible)
 
         # Generate summary
         summary = generate_summary_report(results)
