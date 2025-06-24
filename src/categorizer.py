@@ -213,12 +213,13 @@ def get_subsegment_suggestion(category, company_data):
     return subsegments[0] if subsegments else ""
 
 
-def categorize_company(company_name):
+def categorize_company(company_name, quiet=False):
     """Main function to categorize a single company with enhanced granular confidence metrics"""
-    print(f"Processing: {company_name}")
+    if not quiet:
+        print(f"Processing: {company_name}")
 
     # Fetch company data with intelligent selection
-    result = fetch_company_by_name(company_name)
+    result = fetch_company_by_name(company_name, quiet=quiet)
 
     if not result:
         return {

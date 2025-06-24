@@ -128,7 +128,29 @@ def get_processing_options():
     )
     excel_compatible = response not in ["n", "no"]  # Default to yes
 
-    return {"include_metadata": include_metadata, "excel_compatible": excel_compatible}
+    # Concurrent processing option
+    response = (
+        input(
+            "   Use concurrent processing for speed (recommended for large datasets)? (Y/n): "
+        )
+        .lower()
+        .strip()
+    )
+    concurrent = response not in ["n", "no"]  # Default to yes
+
+    # Workers option (only if concurrent is enabled)
+    max_workers = 5  # Default
+    if concurrent:
+        response = input("   Maximum concurrent workers (2-10, default=5): ").strip()
+        if response.isdigit() and 2 <= int(response) <= 10:
+            max_workers = int(response)
+
+    return {
+        "include_metadata": include_metadata,
+        "excel_compatible": excel_compatible,
+        "concurrent": concurrent,
+        "max_workers": max_workers,
+    }
 
 
 def ensure_directories():
@@ -187,6 +209,8 @@ def main():
             str(selected_file),
             include_metadata=options["include_metadata"],
             excel_compatible=options["excel_compatible"],
+            concurrent=options["concurrent"],
+            max_workers=options["max_workers"],
         )
 
         if summary:

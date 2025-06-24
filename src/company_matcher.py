@@ -8,6 +8,11 @@ better categorization outcomes.
 
 from .utils import similarity_score, has_naringskoder, is_company_active
 from .api_client import fetch_companies_by_name
+import threading
+
+# Simple cache for company data to avoid duplicate API calls
+_company_cache = {}
+_cache_lock = threading.Lock()
 
 
 def get_company_relevance_score(company_data, search_name):
@@ -40,7 +45,7 @@ def get_company_relevance_score(company_data, search_name):
     return score
 
 
-def select_best_company_match(companies, search_name):
+def select_best_company_match(companies, search_name, quiet=False):
     """Select the best company match from multiple alternatives, prioritizing categorizable companies"""
     if not companies:
         return None
@@ -48,32 +53,39 @@ def select_best_company_match(companies, search_name):
     if len(companies) == 1:
         return companies[0]
 
-    print(f"    Found {len(companies)} potential matches, evaluating...")
+    if not quiet:
+        print(f"    Found {len(companies)} potential matches, evaluating...")
 
     # First, separate companies with and without næringskoder
     companies_with_nk = [c for c in companies if has_naringskoder(c)]
     companies_without_nk = [c for c in companies if not has_naringskoder(c)]
 
-    print(f"    Companies with næringskoder: {len(companies_with_nk)}")
-    print(f"    Companies without næringskoder: {len(companies_without_nk)}")
+    if not quiet:
+        print(f"    Companies with næringskoder: {len(companies_with_nk)}")
+        print(f"    Companies without næringskoder: {len(companies_without_nk)}")
 
     # PRIORITY RULE: If exactly one company has næringskoder, always choose it
     if len(companies_with_nk) == 1:
         selected_company = companies_with_nk[0]
-        print(
-            f"    ✓ SELECTED (only company with næringskoder): {selected_company.get('navn', 'N/A')}"
-        )
+        if not quiet:
+            print(
+                f"    ✓ SELECTED (only company with næringskoder): {selected_company.get('navn', 'N/A')}"
+            )
         return selected_company
 
     # If multiple companies have næringskoder, score only those
     if len(companies_with_nk) > 1:
-        print(f"    Multiple companies with næringskoder found, scoring among them...")
+        if not quiet:
+            print(
+                f"    Multiple companies with næringskoder found, scoring among them..."
+            )
         companies_to_score = companies_with_nk
     # If NO companies have næringskoder, fall back to scoring all
     elif len(companies_with_nk) == 0:
-        print(
-            f"    ⚠️  No companies have næringskoder, will result in uncategorizable match"
-        )
+        if not quiet:
+            print(
+                f"    ⚠️  No companies have næringskoder, will result in uncategorizable match"
+            )
         companies_to_score = companies
     else:
         companies_to_score = companies
@@ -84,14 +96,15 @@ def select_best_company_match(companies, search_name):
         score = get_company_relevance_score(company, search_name)
         scored_companies.append((score, company))
 
-        # Debug info
-        company_name = company.get("navn", "N/A")
-        org_num = company.get("organisasjonsnummer", "N/A")
-        has_nk = "✓" if has_naringskoder(company) else "✗"
-        is_active = "✓" if is_company_active(company) else "✗"
-        print(
-            f"      {score:.3f}: {company_name} (Org: {org_num}) [NK: {has_nk}, Active: {is_active}]"
-        )
+        # Debug info (only in verbose mode)
+        if not quiet:
+            company_name = company.get("navn", "N/A")
+            org_num = company.get("organisasjonsnummer", "N/A")
+            has_nk = "✓" if has_naringskoder(company) else "✗"
+            is_active = "✓" if is_company_active(company) else "✗"
+            print(
+                f"      {score:.3f}: {company_name} (Org: {org_num}) [NK: {has_nk}, Active: {is_active}]"
+            )
 
     # Sort by score (highest first)
     scored_companies.sort(key=lambda x: x[0], reverse=True)
@@ -101,7 +114,8 @@ def select_best_company_match(companies, search_name):
     close_matches = [sc for sc in scored_companies if abs(sc[0] - best_score) <= 0.1]
 
     if len(close_matches) > 1:
-        print(f"    {len(close_matches)} companies have similar scores...")
+        if not quiet:
+            print(f"    {len(close_matches)} companies have similar scores...")
 
         # If we're already within companies with næringskoder, use other criteria
         if len(companies_with_nk) > 1:
@@ -109,38 +123,59 @@ def select_best_company_match(companies, search_name):
             active_matches = [sc for sc in close_matches if is_company_active(sc[1])]
             if active_matches:
                 best_company = active_matches[0][1]
-                print(f"    Selected active company: {best_company.get('navn', 'N/A')}")
+                if not quiet:
+                    print(
+                        f"    Selected active company: {best_company.get('navn', 'N/A')}"
+                    )
             else:
-                print(f"    Selected highest scored: {best_company.get('navn', 'N/A')}")
+                if not quiet:
+                    print(
+                        f"    Selected highest scored: {best_company.get('navn', 'N/A')}"
+                    )
         else:
             # We're in the fallback scenario - no companies have næringskoder
-            print(
-                f"    Selected highest scored (no næringskoder available): {best_company.get('navn', 'N/A')}"
-            )
+            if not quiet:
+                print(
+                    f"    Selected highest scored (no næringskoder available): {best_company.get('navn', 'N/A')}"
+                )
     else:
-        selection_reason = (
-            "with næringskoder"
-            if has_naringskoder(best_company)
-            else "without næringskoder (uncategorizable)"
-        )
-        print(
-            f"    ✓ SELECTED ({selection_reason}): {best_company.get('navn', 'N/A')} (score: {best_score:.3f})"
-        )
+        if not quiet:
+            selection_reason = (
+                "with næringskoder"
+                if has_naringskoder(best_company)
+                else "without næringskoder (uncategorizable)"
+            )
+            print(
+                f"    ✓ SELECTED ({selection_reason}): {best_company.get('navn', 'N/A')} (score: {best_score:.3f})"
+            )
 
     return best_company
 
 
-def fetch_company_by_name(company_name):
-    """Fetch company data by name with intelligent selection"""
+def fetch_company_by_name(company_name, quiet=False):
+    """Fetch company data by name with intelligent selection and caching"""
+    # Normalize company name for cache key
+    cache_key = company_name.lower().strip()
+
+    # Check cache first (thread-safe)
+    with _cache_lock:
+        if cache_key in _company_cache:
+            return _company_cache[cache_key]
+
+    # Fetch from API if not in cache
     companies = fetch_companies_by_name(company_name)
 
     if not companies:
+        # Cache the "not found" result to avoid repeated API calls
+        with _cache_lock:
+            _company_cache[cache_key] = None
         return None
 
     # Use intelligent selection to pick the best match
-    selected_company = select_best_company_match(companies, company_name)
+    selected_company = select_best_company_match(companies, company_name, quiet=quiet)
 
-    # Return both the selected company and search metadata
+    # Prepare result
+    result = None
     if selected_company:
         search_metadata = {
             "total_matches": len(companies),
@@ -152,6 +187,10 @@ def fetch_company_by_name(company_name):
             ),
             "selected_company_has_naringskoder": has_naringskoder(selected_company),
         }
-        return selected_company, search_metadata
+        result = (selected_company, search_metadata)
 
-    return None
+    # Cache the result (thread-safe)
+    with _cache_lock:
+        _company_cache[cache_key] = result
+
+    return result

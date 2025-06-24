@@ -5,8 +5,47 @@ This module contains product category mappings based on Norwegian industry codes
 (næringskoder) and keywords for automated company categorization.
 """
 
+import os
+import platform
+
 # BRREG API Configuration
 BASE_URL = "https://data.brreg.no/enhetsregisteret/api/enheter"
+
+
+# SSL Configuration - automatically detect Windows and virtual environments
+def _detect_ssl_issues():
+    """Detect if we're in an environment that commonly has SSL issues"""
+    # Check for Windows
+    is_windows = platform.system().lower() == "windows"
+
+    # Check for virtual desktop indicators
+    virtual_indicators = [
+        "SESSIONNAME" in os.environ,  # Windows Terminal Server
+        "RDS" in os.environ.get("COMPUTERNAME", ""),  # Remote Desktop
+        "CITRIX" in os.environ.get("COMPUTERNAME", ""),  # Citrix
+        "VDI" in os.environ.get("COMPUTERNAME", ""),  # VDI
+    ]
+
+    is_virtual_desktop = any(virtual_indicators)
+
+    # Default to False for SSL verification if on Windows virtual desktop
+    if is_windows and is_virtual_desktop:
+        print(
+            "🖥️  Windows virtual desktop detected - SSL verification disabled by default"
+        )
+        return False
+
+    return True
+
+
+# SSL Configuration - set to False for virtual desktop environments with certificate issues
+SSL_VERIFY = os.getenv("SSL_VERIFY", str(_detect_ssl_issues())).lower() == "true"
+
+# Print SSL configuration on import (for debugging)
+if not SSL_VERIFY:
+    print(
+        "⚠️  SSL verification is disabled - API calls will bypass certificate validation"
+    )
 
 # CSV Configuration
 CSV_DELIMITER = ","  # Change to ";" for semicolon-separated files
